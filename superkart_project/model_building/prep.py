@@ -43,8 +43,6 @@ def main():
     # Remove the first column which is marked as 'Unnamed'
     df = df_raw.iloc[:, 1:]
 
-    # Fix inconsistent categorical text data in Gender column
-    df['Gender'] = df['Gender'].str.capitalize().str.replace(" ", "")
 
     # Duplicate checks
     duplicate_count = df.duplicated().sum()
@@ -59,22 +57,6 @@ def main():
     print("Null values BEFORE cleaning:")
     print(null_before[null_before > 0])
 
-    # Drop the identifier columns not useful for modeling
-    if 'CustomerID' in df.columns:
-        df.drop(columns=['CustomerID'], inplace=True)
-        print(" - Dropped CustomerID column.")
-
-    # Feature engineering
-    for col in ['Passport', 'OwnCar', 'ProdTaken']:
-        if col in df.columns:
-            df[col] = safe_to_numeric(df[col])
-
-    # Drop high-cardinality Designation column (if needed)
-    if 'Designation' in df.columns:
-        unique_count = df['Designation'].nunique()
-        if unique_count > DESIGNATION_CARDINALITY_THRESHOLD:
-            df.drop(columns=['Designation'], inplace=True)
-            print(f" - Dropped Designation column (too many unique values: {unique_count}).")
 
     # Null check after cleaning
     null_after = df.isnull().sum()
@@ -86,10 +68,10 @@ def main():
 
 
     # Define target variable
-    y = df['ProdTaken']
+    y = df['Product_Store_Sales_Total']
 
     # Define predictor matrix (X)
-    X = df.drop(columns=['ProdTaken'])
+    X = df.drop(columns=['Product_Store_Sales_Total'])
 
     # Ensures class balance is preserved in train & test sets.
     stratify_arg = y if y.nunique() > 1 else None

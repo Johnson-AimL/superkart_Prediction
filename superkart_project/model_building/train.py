@@ -44,28 +44,20 @@ ytest = pd.read_csv(ytest_path)
 # Column Categorization
 # =============================
 numeric_features = [
-    "Age",
-    "DurationOfPitch",
-    "NumberOfPersonVisiting",
-    "NumberOfFollowups",
-    "PreferredPropertyStar",
-    "NumberOfTrips",
-    "PitchSatisfactionScore",
-    "NumberOfChildrenVisiting",
-    "MonthlyIncome",
-    "CityTier"
+    "product_weight",
+    "product_allocated_area",
+    "product_mrp",
+    "store_establishment_year"
 ]
 
 categorical_features = [
-    "TypeofContact",
-    "Occupation",
-    "Gender",
-    "ProductPitched",
-    "MaritalStatus",
-    "Designation"
+    "product_sugar_content",
+    "product_type",
+    "store_size",
+    "store_location_city_type",
+    "store_type"
  ]
 
-binary_features = ["Passport", "OwnCar"]  # int64 but binary
 
 # Set the clas weight to handle class imbalance
 class_weight = ytrain.value_counts()[0] / ytrain.value_counts()[1]
@@ -89,11 +81,7 @@ preprocessor = make_column_transformer(
         ("onehot", OneHotEncoder(handle_unknown="ignore"))
     ]), categorical_features),
 
-    # For columns with binary values
-    # Replace NaNs with the most frequent value
-    (Pipeline([
-        ("imputer", SimpleImputer(strategy="most_frequent")),
-    ]), binary_features)
+    
 )
 
 # Define base XGBoost model
