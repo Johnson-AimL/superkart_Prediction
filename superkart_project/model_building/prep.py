@@ -73,12 +73,10 @@ def main():
     # Define predictor matrix (X)
     X = df.drop(columns=['Product_Store_Sales_Total'])
 
-    # Ensures class balance is preserved in train & test sets.
-    stratify_arg = y if y.nunique() > 1 else None
 
     # Split train/test
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=stratify_arg
+        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
     )
     X_train.to_csv("Xtrain.csv",index=False)
     X_test.to_csv("Xtest.csv",index=False)
