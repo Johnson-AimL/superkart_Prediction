@@ -8,8 +8,9 @@ from sklearn.pipeline import make_pipeline
 # for model training, tuning, and evaluation
 import xgboost as xgb
 from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import accuracy_score, classification_report, recall_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
 from sklearn.impute import SimpleImputer
+import numpy as np
 # for model serialization
 import joblib
 # for creating a folder
@@ -47,7 +48,13 @@ numeric_features = [
     "product_weight",
     "product_allocated_area",
     "product_mrp",
-    "store_establishment_year"
+    "store_establishment_year",
+    "PreferredPropertyStar",
+    "NumberOfTrips",
+    "PitchSatisfactionScore",
+    "NumberOfChildrenVisiting",
+    "MonthlyIncome",
+    "CityTier"
 ]
 
 categorical_features = [
@@ -56,18 +63,16 @@ categorical_features = [
     "store_size",
     "store_location_city_type",
     "store_type"
- ]
+]
 
-
-# Set the clas weight to handle class imbalance
-class_weight = ytrain.value_counts()[0] / ytrain.value_counts()[1]
-class_weight
+# Define binary features if any (was referenced but not defined in original)
+binary_features = []  # Add your binary columns here if applicable
 
 # Preprocessing pipeline for columns
 preprocessor = make_column_transformer(
     # For numeric column
     # Replace NaNs with median as median is robust to outliers
-    # Apply Standard scalin
+    # Apply Standard scaling
     (Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler())
@@ -81,29 +86,41 @@ preprocessor = make_column_transformer(
         ("onehot", OneHotEncoder(handle_unknown="ignore"))
     ]), categorical_features),
 
-    
+    # For columns with binary values (if any)
+    # Replace NaNs with the most frequent value
+    (Pipeline([
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+    ]), binary_features) if binary_features else ('passthrough', [])
 )
 
-# Define base XGBoost model
-xgb_model = xgb.XGBClassifier(scale_pos_weight=class_weight, random_state=42)
+# Define base XGBoost model for REGRESSION
+xgb_model = xgb.XGBRegressor(random_state=42)
 
-
-# Define hyperparameter grid
+# Define hyperparameter grid for REGRESSION
 param_grid = {
-    'xgbclassifier__n_estimators': [50, 75, 100],
-    'xgbclassifier__max_depth': [2, 3, 4],
-    'xgbclassifier__colsample_bytree': [0.4, 0.5, 0.6],
-    'xgbclassifier__colsample_bylevel': [0.4, 0.5, 0.6],
-    'xgbclassifier__learning_rate': [0.01, 0.05, 0.1],
-    'xgbclassifier__reg_lambda': [0.4, 0.5, 0.6],
+    'xgbregressor__n_estimators': [100, 150, 200],
+    'xgbregressor__max_depth': [3, 5, 7],
+    'xgbregressor__colsample_bytree': [0.5, 0.7, 0.9],
+    'xgbregressor__colsample_bylevel': [0.5, 0.7, 0.9],
+    'xgbregressor__learning_rate': [0.01, 0.05, 0.1],
+    'xgbregressor__reg_lambda': [0.1, 1.0, 10.0],
+    'xgbregressor__reg_alpha': [0, 0.1, 1.0],
+    'xgbregressor__subsample': [0.7, 0.8, 0.9],
+    'xgbregressor__min_child_weight': [1, 3, 5]
 }
 
 # Model pipeline
 model_pipeline = make_pipeline(preprocessor, xgb_model)
 
 with mlflow.start_run():
-    # Hyperparameter tuning
-    grid_search = GridSearchCV(model_pipeline, param_grid, cv=5, n_jobs=-1)
+    # Hyperparameter tuning with regression scoring
+    grid_search = GridSearchCV(
+        model_pipeline, 
+        param_grid, 
+        cv=5, 
+        n_jobs=-1,
+        scoring='neg_mean_squared_error'  # Use MSE for regression
+    )
     grid_search.fit(Xtrain, ytrain)
 
     # Log all parameter combinations and their mean test scores
@@ -121,36 +138,57 @@ with mlflow.start_run():
         # to handle the restrictions of number of requests to MLflow per minute
         time.sleep(1)
 
-  # Log best parameters separately in main run
+    # Log best parameters separately in main run
     mlflow.log_params(grid_search.best_params_)
 
     # Store and evaluate the best model
     best_model = grid_search.best_estimator_
 
-    # Use custom threshold as dataset is imbalanced on target column
-    # where only 19% has taken the product
-    classification_threshold = 0.45
+    # Make predictions for regression (no threshold needed)
+    y_pred_train = best_model.predict(Xtrain)
+    y_pred_test = best_model.predict(Xtest)
 
-    y_pred_train_proba = best_model.predict_proba(Xtrain)[:, 1]
-    y_pred_train = (y_pred_train_proba >= classification_threshold).astype(int)
+    # Calculate regression metrics
+    train_mse = mean_squared_error(ytrain, y_pred_train)
+    train_rmse = np.sqrt(train_mse)
+    train_mae = mean_absolute_error(ytrain, y_pred_train)
+    train_r2 = r2_score(ytrain, y_pred_train)
+    train_mape = mean_absolute_percentage_error(ytrain, y_pred_train)
 
-    y_pred_test_proba = best_model.predict_proba(Xtest)[:, 1]
-    y_pred_test = (y_pred_test_proba >= classification_threshold).astype(int)
-
-    train_report = classification_report(ytrain, y_pred_train, output_dict=True)
-    test_report = classification_report(ytest, y_pred_test, output_dict=True)
+    test_mse = mean_squared_error(ytest, y_pred_test)
+    test_rmse = np.sqrt(test_mse)
+    test_mae = mean_absolute_error(ytest, y_pred_test)
+    test_r2 = r2_score(ytest, y_pred_test)
+    test_mape = mean_absolute_percentage_error(ytest, y_pred_test)
 
     # Logs all evaluation metrics for train and test sets into MLflow
     mlflow.log_metrics({
-        "train_accuracy": train_report['accuracy'],
-        "train_precision": train_report['1']['precision'],
-        "train_recall": train_report['1']['recall'],
-        "train_f1-score": train_report['1']['f1-score'],
-        "test_accuracy": test_report['accuracy'],
-        "test_precision": test_report['1']['precision'],
-        "test_recall": test_report['1']['recall'],
-        "test_f1-score": test_report['1']['f1-score']
+        "train_mse": train_mse,
+        "train_rmse": train_rmse,
+        "train_mae": train_mae,
+        "train_r2": train_r2,
+        "train_mape": train_mape,
+        "test_mse": test_mse,
+        "test_rmse": test_rmse,
+        "test_mae": test_mae,
+        "test_r2": test_r2,
+        "test_mape": test_mape
     })
+
+    # Print metrics for visibility
+    print("Training Metrics:")
+    print(f"  MSE: {train_mse:.4f}")
+    print(f"  RMSE: {train_rmse:.4f}")
+    print(f"  MAE: {train_mae:.4f}")
+    print(f"  R2 Score: {train_r2:.4f}")
+    print(f"  MAPE: {train_mape:.4f}")
+    
+    print("\nTest Metrics:")
+    print(f"  MSE: {test_mse:.4f}")
+    print(f"  RMSE: {test_rmse:.4f}")
+    print(f"  MAE: {test_mae:.4f}")
+    print(f"  R2 Score: {test_r2:.4f}")
+    print(f"  MAPE: {test_mape:.4f}")
 
     # Save the model locally
     model_path = "best_superkart_model_v1.joblib"
@@ -174,7 +212,7 @@ with mlflow.start_run():
         create_repo(repo_id=repo_id, repo_type=repo_type, private=False)
         print(f"Space '{repo_id}' created.")
 
-    # Upload the bset model in huggingface repo
+    # Upload the best model in huggingface repo
     api.upload_file(
         path_or_fileobj="best_superkart_model_v1.joblib",
         path_in_repo="best_superkart_model_v1.joblib",
